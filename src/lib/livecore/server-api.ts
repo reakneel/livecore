@@ -31,6 +31,6 @@ export async function fetchDanmuEndpoint(roomId: number): Promise<{ ok: true; en
   } catch (err) { return { ok: false, error: err instanceof Error ? err.message : "弹幕服务器请求失败" }; }
 }
 
-export async function generateAiReply(): Promise<{ ok: false; error: string }> {
+export async function generateAiReply(): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   return { ok: false, error: "纯 Vite 浏览器模式暂未启用服务端 AI 代理" };
 }
