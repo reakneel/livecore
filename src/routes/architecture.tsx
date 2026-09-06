@@ -6,11 +6,15 @@ export const Route = createFileRoute("/architecture")({ component: ArchitectureP
 const LAYERS = [
   {
     title: "应用入口",
-    items: ["读取人格、间隔、冷启动配置", "启动连接 / 消息 / AI / 行为模块", "演示厅与真实房间两种源"],
+    items: ["读取人格、间隔、冷启动配置", "启动连接 / 消息 / AI / 行为模块", "演示厅与真实 Bilibili 房间两种源"],
+  },
+  {
+    title: "平台适配",
+    items: ["LiveEngine 不直接依赖未来平台实现", "当前启用 Bilibili adapter / client", "后续新增平台只扩展 adapter 与平台注册表"],
   },
   {
     title: "业务逻辑",
-    items: ["消息处理器解析弹幕、礼物、进场", "事件分发器路由到 on_danmu / on_gift / on_enter", "行为调度器：定时打卡、随机氛围、条件触发"],
+    items: ["消息处理器解析弹幕、礼物、进场", "事件分发器统一路由 LiveEvent", "行为调度器：定时打卡、随机氛围、条件触发"],
   },
   {
     title: "AI 集成",
@@ -18,7 +22,7 @@ const LAYERS = [
   },
   {
     title: "网络通信",
-    items: ["B 站直播二进制协议（认证 / 心跳 / zlib 通知）", "25 秒 Ping，监听人气 Pong", "指数退避 + 抖动重连"],
+    items: ["Bilibili 直播二进制协议（认证 / 心跳 / 通知）", "25 秒 Ping，监听人气 Pong", "指数退避 + 抖动重连"],
   },
   {
     title: "基础设施",
@@ -39,8 +43,8 @@ function ArchitecturePage() {
         </Link>
         <h1 className="mt-6 text-3xl font-semibold tracking-tight">分层架构</h1>
         <p className="mt-3 max-w-prose text-sm leading-relaxed text-muted">
-          智核按「连接 → 理解 → 建议」叠加能力。每一层可独立替换：换平台只要换网络适配器，换模型只要换 AI
-          引擎，出站动作由适配器决定——当前默认适配器是模拟器，不会把弹幕打到直播间。
+          LiveCore 保持现有控制台体验，把平台连接能力收敛到 adapter 边界。当前先完成 Bilibili 落地；未来接入其他平台时，
+          UI、事件模型和业务引擎无需跟着平台协议变化。
         </p>
         <ol className="mt-8 space-y-3">
           {LAYERS.map((layer, i) => (
@@ -64,7 +68,7 @@ function ArchitecturePage() {
           <h2 className="text-base font-medium text-fg">合规边界</h2>
           <p className="mt-2">
             接收公开弹幕流是学习协议的正当路径。自动发送、伪造在线、绕过风控不属于本项目范围。若你自行实现出站适配器，请遵守
-            B 站用户协议，并承担账号风险。
+            Bilibili 用户协议，并承担账号风险。
           </p>
         </section>
       </div>
