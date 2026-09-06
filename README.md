@@ -20,7 +20,16 @@ npm run build
 npm run preview
 ```
 
-类型检查：`npm run typecheck`
+质量检查：
+
+```bash
+npm run typecheck
+npm test
+```
+
+## 部署
+
+这是标准 Vite SPA，可直接部署到 Vercel、静态 CDN 或任意支持单页应用回退的 Web Server。仓库内已提供 `vercel.json`，用于 `/architecture` 等客户端路由的 SPA fallback。
 
 ## 当前能力
 
@@ -37,6 +46,7 @@ npm run preview
 - Demo / 真实 Bilibili 房间双模式
 - 浏览器端配置持久化
 - 移动端响应式控制台
+- 基础单元测试与 GitHub Actions CI
 
 ## 项目边界
 
@@ -54,6 +64,12 @@ livecore
 
 平台抽象位于 `src/lib/platforms/`，但当前阶段的目标是把**前端产品先跑起来并可直接部署**，而不是提前把 LiveCore 改造成 SDK 或 API 服务。
 
+## 浏览器运行边界
+
+房间公开信息通过 Bilibili Web API 获取，弹幕通过浏览器 WebSocket 连接。不同部署环境可能对跨域、WebSocket 或目标接口策略有额外限制；生产环境若遇到浏览器网络策略限制，应增加独立的 edge/backend proxy，而不是把密钥或账号 Cookie 放进前端。
+
+AI 回复当前在纯 Vite 浏览器模式安全降级，不在客户端暴露模型 API 密钥；后续通过独立后端代理接入。
+
 ## 安全边界
 
 控制台默认停在「建议」层，不会使用账号 Cookie 自动向 Bilibili 发送弹幕、点赞或分享。请遵守 Bilibili 用户协议及适用法律法规。
@@ -61,7 +77,7 @@ livecore
 ## Roadmap
 
 1. ✅ Vite 独立可运行 + Bilibili 初始支持
-2. 房间体验与异常恢复完善
+2. 🔄 房间体验与异常恢复完善
 3. AI 服务接入（独立后端代理保护密钥）
 4. 多房间 Dashboard
 5. 第二个平台 adapter
