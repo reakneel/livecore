@@ -160,7 +160,6 @@ export class LiveEngine {
 
     const session = this.beginSession();
     this.mode = "bilibili";
-    this.running = true;
     this.connection = "connecting";
     this.layers.net = "warn";
     this.error = null;
@@ -177,6 +176,11 @@ export class LiveEngine {
     this.room = roomRes.room;
     this.stats.popularity = roomRes.room.online;
     this.log.push("info", "msg", `进入「${roomRes.room.title}」· ${roomRes.room.uname}`);
+
+    if (roomRes.room.liveStatus !== 1) {
+      this.fail("当前直播间未开播");
+      return;
+    }
 
     const ep = await fetchDanmuEndpoint({ data: { roomId: roomRes.room.roomId } });
     if (!this.isCurrent(session)) return;
@@ -240,6 +244,11 @@ export class LiveEngine {
     this.running = true;
     this.session += 1;
     this.teardownLink();
+    this.events = [];
+    this.suggestions = [];
+    this.stats = emptyStats();
+    this.ctx.reset();
+    this.layers = idleLayers();
     return this.session;
   }
 
@@ -248,9 +257,13 @@ export class LiveEngine {
   }
 
   private fail(message: string) {
+    this.running = false;
+    this.session += 1;
+    this.teardownLink();
     this.error = message;
     this.connection = "error";
     this.layers.net = "error";
+    this.layers.behavior = "idle";
     this.log.push("error", "net", message);
     this.emit();
   }
