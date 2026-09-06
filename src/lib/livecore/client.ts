@@ -108,6 +108,14 @@ export class BiliLiveClient {
       for (const pkt of packets) {
         if (!this.isCurrent(ws, generation)) return;
         if (pkt.op === OP.AUTH_REPLY) {
+          const auth = parseJsonBody(pkt.body);
+          const code = typeof auth === "object" && auth !== null && "code" in auth ? Number(auth.code) : 0;
+          if (Number.isFinite(code) && code !== 0) {
+            this.log.push("error", "net", `B 站认证失败 code=${code}`);
+            this.handlers.onState("error");
+            ws.close();
+            return;
+          }
           this.attempt = 0;
           this.handlers.onState("live");
           this.log.push("info", "net", "认证成功，开始心跳");
