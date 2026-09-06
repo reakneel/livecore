@@ -1,8 +1,10 @@
-# LiveCore
+# 智核 LiveCore
 
-LiveCore 是一个**可直接运行的 Vite + React 前端项目**，当前第一落地点是 Bilibili 直播间智能互动控制台。
+**B站直播间智能互动控制台 · Standalone Vite Application**
 
-本仓库就是产品前端本体，不是需要被另一个 Vite 项目消费的 SDK。克隆后安装依赖即可启动；控制台视觉风格、Demo 流、Bilibili 房间连接、事件 Feed、建议队列和响应式布局都在这里运行。
+LiveCore 是一个可直接运行、可直接部署的 **Vite + React + TypeScript** 前端产品。当前第一落地点是 Bilibili 直播间：连接公开直播数据与弹幕事件，将平台消息归一化为 LiveEvent，并在控制台中提供实时 Feed、规则建议、连接状态和房间管理。
+
+> **重要边界**：`livecore` 本身就是产品前端，不需要被另一个 Vite 项目消费，也不依赖 `livecore-bilibili` 才能启动。
 
 ## 快速开始
 
@@ -11,7 +13,7 @@ npm install
 npm run dev
 ```
 
-默认开发地址：`http://localhost:5173`
+打开 `http://localhost:5173`。
 
 生产构建：
 
@@ -27,57 +29,100 @@ npm run typecheck
 npm test
 ```
 
-## 部署
-
-这是标准 Vite SPA，可直接部署到 Vercel、静态 CDN 或任意支持单页应用回退的 Web Server。仓库内已提供 `vercel.json`，用于 `/architecture` 等客户端路由的 SPA fallback。
-
-## 当前能力
+## 当前落地能力
 
 - Vite + React + TypeScript 独立运行
 - TanStack Router 客户端路由
-- Bilibili 房间信息解析
-- Bilibili 弹幕 WebSocket 连接
-- 认证帧 / 心跳 / 人气 / 通知帧处理
-- zlib / Brotli / 嵌套 packet 解析
-- 弹幕、礼物、进场、关注、分享、舰队、Super Chat 等统一事件模型
-- 指数退避 + jitter 重连
-- 实时事件 Feed
-- 规则建议队列
-- Demo / 真实 Bilibili 房间双模式
+- LiveCore Console UI
+- Demo / Bilibili 真实房间双模式
+- Bilibili 房间信息解析与开播状态检查
+- Bilibili WebSocket 弹幕连接
+- 认证帧、心跳、嵌套 packet、zlib / Brotli 数据解析
+- 弹幕、礼物、进场、关注、分享、舰队、Super Chat 等统一 LiveEvent
+- 连接状态、错误状态、指数退避 + jitter 重连
+- 房间切换时的 session 隔离，避免旧连接污染新房间
+- 实时事件 Feed 与规则建议队列
 - 浏览器端配置持久化
-- 移动端响应式控制台
-- 基础单元测试与 GitHub Actions CI
+- 响应式控制台
+- favicon / Open Graph 分享资源
+- Vitest 基础单元测试
+- GitHub Actions：typecheck + test + production build
+- Vercel SPA fallback 配置
 
-## 项目边界
-
-`livecore` 是前端应用；`livecore-bilibili` 是后续独立的平台能力/SDK 项目。当前不要求启动或部署其它仓库，LiveCore 自己即可运行。
+## 架构
 
 ```text
-livecore
-├── Vite
-├── React
-├── Console UI
-├── LiveEngine
-├── unified LiveEvent
-└── Bilibili adapter/runtime
+Browser
+  ↓
+Vite
+  ↓
+React
+  ↓
+TanStack Router
+  ↓
+ConsoleApp
+  ↓
+LiveEngine
+  ↓
+Platform Registry
+  ↓
+Bilibili Adapter / WebSocket
+  ↓
+LiveEvent
 ```
 
-平台抽象位于 `src/lib/platforms/`，但当前阶段的目标是把**前端产品先跑起来并可直接部署**，而不是提前把 LiveCore 改造成 SDK 或 API 服务。
+核心目录：
+
+```text
+src/
+├── components/console/   # 产品控制台 UI
+├── components/ui/        # 基础 UI primitives
+├── lib/livecore/         # Engine、事件、调度、规则、连接运行时
+├── lib/platforms/        # 平台 adapter contract + Bilibili adapter
+└── routes/               # SPA routes
+```
+
+平台抽象已经保留，但当前目标是**产品优先**：先让 LiveCore 自己可运行、可连接、可部署，再扩展其它平台。
 
 ## 浏览器运行边界
 
-房间公开信息通过 Bilibili Web API 获取，弹幕通过浏览器 WebSocket 连接。不同部署环境可能对跨域、WebSocket 或目标接口策略有额外限制；生产环境若遇到浏览器网络策略限制，应增加独立的 edge/backend proxy，而不是把密钥或账号 Cookie 放进前端。
+房间公开信息由 Bilibili Web API 获取，弹幕由浏览器 WebSocket 连接。实际部署时，Bilibili 接口的 CORS、WebSocket 策略或网络环境可能造成限制；遇到这类问题，应增加独立 edge/backend proxy，而不是把账号 Cookie、模型密钥等敏感凭据放进前端。
 
-AI 回复当前在纯 Vite 浏览器模式安全降级，不在客户端暴露模型 API 密钥；后续通过独立后端代理接入。
-
-## 安全边界
+AI 回复目前在纯 Vite 浏览器模式安全降级，不在客户端暴露模型 API Key。后续可通过独立后端代理接入。
 
 控制台默认停在「建议」层，不会使用账号 Cookie 自动向 Bilibili 发送弹幕、点赞或分享。请遵守 Bilibili 用户协议及适用法律法规。
 
-## Roadmap
+## 部署
 
-1. ✅ Vite 独立可运行 + Bilibili 初始支持
-2. 🔄 房间体验与异常恢复完善
-3. AI 服务接入（独立后端代理保护密钥）
-4. 多房间 Dashboard
-5. 第二个平台 adapter
+这是标准 Vite SPA，可部署到 Vercel、静态 CDN 或任意支持 SPA fallback 的 Web Server。仓库已经提供 `vercel.json`。
+
+Vercel / 静态部署通常无需额外环境变量即可运行 Demo；真实 Bilibili 房间能力取决于浏览器到 Bilibili API / WebSocket 的网络策略。
+
+## CI
+
+GitHub Actions 在 push / pull request 到 `main` 时执行：
+
+```text
+npm install
+  ↓
+npm run typecheck
+  ↓
+npm test
+  ↓
+npm run build
+```
+
+## 项目边界与后续
+
+`livecore-bilibili` 是后续独立的平台能力 / SDK 项目，不是 LiveCore 当前运行时依赖。
+
+当前产品已经完成第一阶段落地，后续只做增量能力：
+
+1. AI 独立后端代理
+2. 多房间 Dashboard
+3. 第二个平台 adapter
+4. 更完整的生产级监控与观测
+
+## License
+
+当前仓库尚未声明开源许可证；在添加正式 License 前，请按项目所有者的授权范围使用。
