@@ -3,17 +3,25 @@ import type { DanmuEndpoint, RoomInfo } from "./types";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+const REQUEST_TIMEOUT_MS = 10_000;
 
 async function biliGet(url: string): Promise<unknown> {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent": UA,
-      Referer: "https://live.bilibili.com/",
-      Origin: "https://live.bilibili.com",
-    },
-  });
-  if (!res.ok) throw new Error(`Bilibili HTTP ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": UA,
+        Referer: "https://live.bilibili.com/",
+        Origin: "https://live.bilibili.com",
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`Bilibili HTTP ${res.status}`);
+    return res.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const fetchBiliRoom = createServerFn({ method: "POST" })
@@ -47,7 +55,7 @@ export const fetchBiliRoom = createServerFn({ method: "POST" })
           )) as { data?: { info?: { uname?: string } } };
           uname = info.data?.info?.uname || "";
         } catch {
-          /* ignore */
+          /* ignore optional profile lookup */
         }
       }
       return {
@@ -82,23 +90,20 @@ export const fetchDanmuEndpoint = createServerFn({ method: "POST" })
             host_list?: { host: string; wss_port: number }[];
           };
         };
-        const host = json.data?.host_list?.[0];
-        if (json.code !== 0 || !host) {
-          return {
-            ok: true,
-            endpoint: {
-              host: "broadcastlv.chat.bilibili.com",
-              wssPort: 443,
-              token: json.data?.token ?? "",
-            },
-          };
+        if (json.code !== 0) {
+          return { ok: false, error: json.message || `弹幕服务器请求失败（code=${json.code ?? "?"}）` };
+        }
+        const token = json.data?.token?.trim();
+        const host = json.data?.host_list?.find((item) => item.host?.trim());
+        if (!token || !host) {
+          return { ok: false, error: "B 站未返回有效的弹幕连接信息" };
         }
         return {
           ok: true,
           endpoint: {
             host: host.host,
             wssPort: host.wss_port || 443,
-            token: json.data?.token ?? "",
+            token,
           },
         };
       } catch (err) {

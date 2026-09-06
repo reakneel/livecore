@@ -8,6 +8,12 @@ export class RoomContext {
   private replies: Suggestion[] = [];
   private lastTextAt = new Map<string, number>();
 
+  reset() {
+    this.recent = [];
+    this.replies = [];
+    this.lastTextAt.clear();
+  }
+
   pushEvent(ev: LiveEvent) {
     this.recent = [...this.recent.slice(-(MAX_EVENTS - 1)), ev];
   }
