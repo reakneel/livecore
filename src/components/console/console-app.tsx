@@ -19,9 +19,9 @@ function stateMeta(s: ConnectionState): { label: string; variant: "default" | "l
     case "connecting":
     case "authenticating":
     case "reconnecting":
-      return { label: s === "reconnecting" ? "重连中" : "连接中", variant: "warn" };
+      return { label: s === "reconnecting" ? "重连中" : s === "authenticating" ? "认证中" : "连接中", variant: "warn" };
     case "error":
-      return { label: "失败", variant: "danger" };
+      return { label: "连接失败", variant: "danger" };
     case "offline":
       return { label: "已断开", variant: "default" };
     default:
@@ -29,11 +29,18 @@ function stateMeta(s: ConnectionState): { label: string; variant: "default" | "l
   }
 }
 
+function roomStatus(liveStatus: number): string {
+  if (liveStatus === 1) return "直播中";
+  if (liveStatus === 2) return "轮播中";
+  return "未开播";
+}
+
 export function ConsoleApp() {
   const snap = useLiveCore();
   const [roomInput, setRoomInput] = useState("21452505");
   const [aiBusy, setAiBusy] = useState(false);
   const live = snap.connection === "live";
+  const connecting = snap.connection === "connecting" || snap.connection === "authenticating" || snap.connection === "reconnecting";
 
   useEffect(() => {
     if (snap.connection === "idle") {
@@ -87,7 +94,10 @@ export function ConsoleApp() {
         <div className="mb-4 rounded-xl border border-border bg-surface p-3 sm:p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
             <div className="min-w-0 flex-1">
-              <div className="text-xs text-muted">当前房间</div>
+              <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                <span>当前房间</span>
+                {snap.room ? <Badge variant={snap.room.liveStatus === 1 ? "live" : "default"}>{roomStatus(snap.room.liveStatus)}</Badge> : null}
+              </div>
               <div className="truncate text-sm font-medium">
                 {snap.room ? (
                   <>
@@ -100,6 +110,7 @@ export function ConsoleApp() {
                   "未连接"
                 )}
               </div>
+              {snap.room ? <div className="mt-1 font-mono text-[11px] text-muted">room {snap.room.roomId}{snap.room.shortId ? ` · short ${snap.room.shortId}` : ""}</div> : null}
               {snap.error ? <p className="mt-1 text-xs text-danger">{snap.error}</p> : null}
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -114,16 +125,16 @@ export function ConsoleApp() {
               <Button
                 variant="secondary"
                 onClick={() => void getEngine().startBilibili(Number(roomInput) || 0)}
-                disabled={!roomInput}
+                disabled={!roomInput || connecting}
               >
                 <PlugZap />
-                连接真实房间
+                {connecting ? "切换中…" : "连接真实房间"}
               </Button>
-              <Button variant="secondary" onClick={() => void getEngine().startDemo()}>
+              <Button variant="secondary" onClick={() => void getEngine().startDemo()} disabled={connecting}>
                 <Tv />
                 演示厅
               </Button>
-              <Button variant="ghost" onClick={() => getEngine().stop()}>
+              <Button variant="ghost" onClick={() => getEngine().stop()} disabled={snap.connection === "offline" || snap.connection === "idle"}>
                 <Square />
                 停止
               </Button>
