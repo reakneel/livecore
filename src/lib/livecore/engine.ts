@@ -1,0 +1,378 @@
+import { uid } from "@/lib/utils";
+import { BiliLiveClient } from "./client";
+import { RoomContext } from "./context";
+import { EventDispatcher } from "./dispatcher";
+import { RingLogger } from "./logger";
+import { postprocessReply } from "./postprocess";
+import { matchRule } from "./rules";
+import { BehaviorScheduler } from "./scheduler";
+import { fetchDanmuEndpoint, fetchBiliRoom, generateAiReply } from "./server-api";
+import { nextDemoDelay, simulateEvent } from "./simulator";
+import type {
+  ConnectionState,
+  EngineConfig,
+  EngineStats,
+  LayerHealth,
+  LayerId,
+  LiveEvent,
+  LogEntry,
+  RoomInfo,
+  SourceMode,
+  Suggestion,
+} from "./types";
+import { DEFAULT_CONFIG, DEMO_ROOM } from "./types";
+
+export interface EngineSnapshot {
+  mode: SourceMode;
+  connection: ConnectionState;
+  room: RoomInfo | null;
+  events: LiveEvent[];
+  suggestions: Suggestion[];
+  logs: LogEntry[];
+  stats: EngineStats;
+  layers: Record<LayerId, LayerHealth>;
+  config: EngineConfig;
+  coldRemaining: number;
+  error: string | null;
+}
+
+const emptyStats = (): EngineStats => ({
+  danmaku: 0,
+  gifts: 0,
+  enters: 0,
+  popularity: 0,
+  reconnects: 0,
+  heartbeats: 0,
+  suggestions: 0,
+  accepted: 0,
+});
+
+const idleLayers = (): Record<LayerId, LayerHealth> => ({
+  infra: "ok",
+  net: "idle",
+  msg: "idle",
+  ai: "idle",
+  behavior: "idle",
+});
+
+export class LiveEngine {
+  private listeners = new Set<() => void>();
+  private dispatcher = new EventDispatcher();
+  private ctx = new RoomContext();
+  private scheduler = new BehaviorScheduler();
+  readonly log = new RingLogger();
+  private client: BiliLiveClient;
+  private demoTimer: ReturnType<typeof setTimeout> | null = null;
+  private schedTimer: ReturnType<typeof setInterval> | null = null;
+  private events: LiveEvent[] = [];
+  private suggestions: Suggestion[] = [];
+  private stats = emptyStats();
+  private layers = idleLayers();
+  private connection: ConnectionState = "idle";
+  private mode: SourceMode = "demo";
+  private room: RoomInfo | null = null;
+  private config: EngineConfig = { ...DEFAULT_CONFIG };
+  private error: string | null = null;
+  private running = false;
+  private lastAiAt = 0;
+  private replyCache = new Map<string, { text: string; ts: number }>();
+  private cached: EngineSnapshot;
+
+  constructor() {
+    this.cached = this.buildSnapshot();
+    this.client = new BiliLiveClient(
+      {
+        onEvent: (ev) => this.ingest(ev),
+        onState: (state) => {
+          this.connection = state;
+          this.layers.net = state === "live" ? "ok" : state === "error" ? "error" : "warn";
+          if (state === "reconnecting") this.stats.reconnects += 1;
+          this.emit();
+        },
+        onHeartbeat: (pop) => {
+          this.stats.heartbeats += 1;
+          this.stats.popularity = pop;
+          if (this.room) this.room = { ...this.room, online: pop };
+          this.emit();
+        },
+      },
+      this.log,
+    );
+    this.log.on(() => this.emit());
+    this.dispatcher.on("*", (ev) => this.onDispatched(ev));
+  }
+
+  subscribe(fn: () => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
+  }
+
+  snapshot(): EngineSnapshot {
+    return this.cached;
+  }
+
+  private buildSnapshot(): EngineSnapshot {
+    return {
+      mode: this.mode,
+      connection: this.connection,
+      room: this.room,
+      events: this.events,
+      suggestions: this.suggestions,
+      logs: this.log.snapshot(),
+      stats: this.stats,
+      layers: this.layers,
+      config: this.config,
+      coldRemaining: this.scheduler.coldRemaining(this.config),
+      error: this.error,
+    };
+  }
+
+  setConfig(patch: Partial<EngineConfig>) {
+    this.config = { ...this.config, ...patch };
+    this.layers.infra = "ok";
+    this.log.push("info", "infra", "配置已更新");
+    this.emit();
+  }
+
+  async startDemo() {
+    this.teardownLink();
+    this.mode = "demo";
+    this.room = { ...DEMO_ROOM, online: DEMO_ROOM.online + Math.floor(Math.random() * 400) };
+    this.connection = "live";
+    this.layers.net = "ok";
+    this.layers.msg = "ok";
+    this.layers.behavior = "ok";
+    this.error = null;
+    this.running = true;
+    this.scheduler.reset();
+    this.log.push("info", "net", "演示厅已启动（模拟弹幕流）");
+    this.loopDemo();
+    this.loopScheduler();
+    this.emit();
+  }
+
+  async startBilibili(roomId: number) {
+    this.teardownLink();
+    this.mode = "bilibili";
+    this.running = true;
+    this.connection = "connecting";
+    this.layers.net = "warn";
+    this.error = null;
+    this.scheduler.reset();
+    this.log.push("info", "net", `解析房间 ${roomId}`);
+    this.emit();
+
+    const roomRes = await fetchBiliRoom({ data: { roomId } });
+    if (!roomRes.ok) {
+      this.fail(roomRes.error);
+      return;
+    }
+    this.room = roomRes.room;
+    this.stats.popularity = roomRes.room.online;
+    this.log.push("info", "msg", `进入「${roomRes.room.title}」· ${roomRes.room.uname}`);
+
+    const ep = await fetchDanmuEndpoint({ data: { roomId: roomRes.room.roomId } });
+    if (!ep.ok) {
+      this.fail(ep.error);
+      return;
+    }
+    this.client.start(roomRes.room.roomId, ep.endpoint);
+    this.loopScheduler();
+    this.emit();
+  }
+
+  stop() {
+    this.running = false;
+    this.teardownLink();
+    this.connection = "offline";
+    this.layers.net = "idle";
+    this.layers.behavior = "idle";
+    this.log.push("info", "net", "已停止");
+    this.emit();
+  }
+
+  accept(id: string) {
+    this.suggestions = this.suggestions.map((s) => {
+      if (s.id !== id || s.status !== "queued") return s;
+      this.ctx.pushReply(s);
+      this.stats.accepted += 1;
+      this.scheduler.markEmit();
+      this.log.push("info", "behavior", `采纳建议：${s.text}`);
+      return { ...s, status: "accepted" as const };
+    });
+    this.emit();
+  }
+
+  dismiss(id: string) {
+    this.suggestions = this.suggestions.map((s) =>
+      s.id === id && s.status === "queued" ? { ...s, status: "dismissed" as const } : s,
+    );
+    this.emit();
+  }
+
+  async requestAi(eventId?: string) {
+    const target =
+      this.events.find((e) => e.id === eventId) ??
+      [...this.events].reverse().find((e) => e.kind === "danmaku" || e.kind === "gift" || e.kind === "superchat");
+    if (!target?.text) {
+      this.log.push("warn", "ai", "没有可回应的事件");
+      this.emit();
+      return;
+    }
+    this.layers.ai = "warn";
+    this.emit();
+    const text = await this.composeAi(target);
+    this.layers.ai = text ? "ok" : "error";
+    if (text) this.enqueue(text, "ai", "手动生成", target.id);
+    this.emit();
+  }
+
+  private fail(message: string) {
+    this.error = message;
+    this.connection = "error";
+    this.layers.net = "error";
+    this.log.push("error", "net", message);
+    this.emit();
+  }
+
+  private teardownLink() {
+    this.client.stop();
+    if (this.demoTimer) {
+      clearTimeout(this.demoTimer);
+      this.demoTimer = null;
+    }
+    if (this.schedTimer) {
+      clearInterval(this.schedTimer);
+      this.schedTimer = null;
+    }
+  }
+
+  private loopDemo() {
+    if (!this.running || this.mode !== "demo") return;
+    const pop = this.room?.online ?? 1000;
+    const ev = simulateEvent(0, pop);
+    this.ingest(ev);
+    if (ev.kind === "popularity" && ev.popularity && this.room) {
+      this.room = { ...this.room, online: Math.max(200, ev.popularity) };
+      this.stats.popularity = this.room.online;
+    }
+    this.demoTimer = setTimeout(() => this.loopDemo(), nextDemoDelay(pop));
+  }
+
+  private loopScheduler() {
+    if (this.schedTimer) clearInterval(this.schedTimer);
+    this.schedTimer = setInterval(() => {
+      if (!this.running) return;
+      const action = this.scheduler.tick(this.config, this.ctx);
+      if (action && this.config.autoSuggest && !this.ctx.alreadySaid(action.text)) {
+        this.enqueue(action.text, action.kind === "checkin" ? "schedule" : "random", action.reason);
+      } else {
+        this.emit();
+      }
+    }, 1000);
+  }
+
+  private ingest(ev: LiveEvent) {
+    if (ev.kind === "popularity") {
+      this.stats.popularity = ev.popularity ?? this.stats.popularity;
+      this.layers.net = "ok";
+      this.emit();
+      return;
+    }
+    this.events = [...this.events.slice(-180), ev];
+    this.ctx.pushEvent(ev);
+    this.layers.msg = "ok";
+    if (ev.kind === "danmaku") this.stats.danmaku += 1;
+    if (ev.kind === "gift" || ev.kind === "guard" || ev.kind === "superchat") this.stats.gifts += 1;
+    if (ev.kind === "enter") this.stats.enters += 1;
+    this.dispatcher.emit(ev);
+    this.emit();
+  }
+
+  private onDispatched(ev: LiveEvent) {
+    if (!this.config.autoSuggest) return;
+    if (this.scheduler.coldRemaining(this.config) > 0) return;
+    if (!this.scheduler.gapOk(this.config)) return;
+
+    const hit = matchRule(ev);
+    if (!hit) return;
+    if (this.ctx.alreadySaid(hit.text)) return;
+
+    const delay = this.scheduler.nextDelay(this.config);
+    setTimeout(() => {
+      if (!this.running) return;
+      if (!this.scheduler.gapOk(this.config)) return;
+      this.enqueue(hit.text, "rule", hit.reason, ev.id);
+    }, delay);
+  }
+
+  private enqueue(
+    raw: string,
+    source: Suggestion["source"],
+    reason: string,
+    inReplyTo?: string,
+  ) {
+    const text = postprocessReply(raw, this.config.replyMaxLen);
+    if (!text) return;
+    if (this.ctx.alreadySaid(text, 60_000)) return;
+    const queued = this.suggestions.filter((s) => s.status === "queued").length;
+    if (queued >= 8) {
+      this.suggestions = this.suggestions.map((s, i) =>
+        i === this.suggestions.findIndex((x) => x.status === "queued")
+          ? { ...s, status: "expired" as const }
+          : s,
+      );
+    }
+    const item: Suggestion = {
+      id: uid("sg"),
+      ts: Date.now(),
+      text,
+      reason,
+      source,
+      inReplyTo,
+      status: "queued",
+    };
+    this.suggestions = [...this.suggestions.slice(-40), item];
+    this.stats.suggestions += 1;
+    this.layers.behavior = "ok";
+    this.scheduler.markEmit();
+    this.log.push("info", "behavior", `建议「${text}」· ${reason}`);
+    this.emit();
+  }
+
+  private async composeAi(target: LiveEvent): Promise<string | null> {
+    const key = (target.text ?? "").trim();
+    const cached = this.replyCache.get(key);
+    if (cached && Date.now() - cached.ts < 30_000) {
+      this.log.push("info", "ai", "命中回复缓存");
+      return cached.text;
+    }
+    if (Date.now() - this.lastAiAt < 12_000) {
+      this.log.push("warn", "ai", "调用过于频繁，已限流");
+      return null;
+    }
+    this.lastAiAt = Date.now();
+    this.log.push("info", "ai", "正在生成回复");
+    const res = await generateAiReply({
+      data: {
+        persona: this.config.personaPrompt,
+        transcript: this.ctx.transcript(),
+        target: key,
+        sentiment: target.sentiment ?? "neutral",
+        maxLen: this.config.replyMaxLen,
+      },
+    });
+    if (!res.ok) {
+      this.log.push("error", "ai", res.error);
+      return null;
+    }
+    const text = postprocessReply(res.text, this.config.replyMaxLen);
+    if (text) this.replyCache.set(key, { text, ts: Date.now() });
+    return text;
+  }
+
+  private emit() {
+    this.cached = this.buildSnapshot();
+    for (const fn of this.listeners) fn();
+  }
+}
