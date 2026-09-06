@@ -13,5 +13,12 @@
     "noEmit": true,
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts"],
+  "exclude": [
+    "src/lib/auth/**",
+    "src/lib/app-data/**",
+    "src/lib/db.ts",
+    "src/lib/preview-host-bridge.ts",
+    "src/components/preview-host-bridge.tsx"
+  ]
 }
