@@ -3,12 +3,12 @@ import type { DanmuEndpoint } from "@/lib/livecore/types";
 import type { LivePlatformClient } from "./types";
 
 /**
- * Bilibili platform adapter.
+ * Initial Bilibili adapter for the browser runtime.
  *
- * The current browser implementation reuses the protocol client already
- * imported from livecore-bilibili. Keeping this boundary here lets the UI
- * remain platform-neutral when the Python SDK is later exposed through an
- * HTTP/WebSocket service.
+ * The protocol implementation currently lives in this LiveCore source tree.
+ * The adapter is deliberately kept as the integration boundary so the
+ * implementation can later be backed by livecore-bilibili over HTTP/WebSocket
+ * without changing the frontend event pipeline.
  */
 export class BilibiliPlatformClient implements LivePlatformClient {
   readonly platform = "bilibili" as const;
