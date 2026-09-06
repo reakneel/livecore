@@ -3,6 +3,8 @@ import type { ClientHandlers } from "@/lib/livecore/client";
 import { BilibiliPlatformClient } from "./bilibili";
 import type { LivePlatformClient, PlatformId } from "./types";
 
+export type { LivePlatformClient, PlatformId } from "./types";
+
 export type PlatformClientFactory = (
   handlers: ClientHandlers,
   log: RingLogger,
