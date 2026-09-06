@@ -1,5 +1,5 @@
 import { uid } from "@/lib/utils";
-import { BiliLiveClient } from "./client";
+import { createPlatformClient, type LivePlatformClient } from "@/lib/platforms";
 import { RoomContext } from "./context";
 import { EventDispatcher } from "./dispatcher";
 import { RingLogger } from "./logger";
@@ -61,7 +61,7 @@ export class LiveEngine {
   private ctx = new RoomContext();
   private scheduler = new BehaviorScheduler();
   readonly log = new RingLogger();
-  private client: BiliLiveClient;
+  private client: LivePlatformClient;
   private demoTimer: ReturnType<typeof setTimeout> | null = null;
   private schedTimer: ReturnType<typeof setInterval> | null = null;
   private events: LiveEvent[] = [];
@@ -74,32 +74,34 @@ export class LiveEngine {
   private config: EngineConfig = { ...DEFAULT_CONFIG };
   private error: string | null = null;
   private running = false;
+  private session = 0;
   private lastAiAt = 0;
   private replyCache = new Map<string, { text: string; ts: number }>();
   private cached: EngineSnapshot;
 
   constructor() {
     this.cached = this.buildSnapshot();
-    this.client = new BiliLiveClient(
-      {
-        onEvent: (ev) => this.ingest(ev),
-        onState: (state) => {
-          this.connection = state;
-          this.layers.net = state === "live" ? "ok" : state === "error" ? "error" : "warn";
-          if (state === "reconnecting") this.stats.reconnects += 1;
-          this.emit();
-        },
-        onHeartbeat: (pop) => {
-          this.stats.heartbeats += 1;
-          this.stats.popularity = pop;
-          if (this.room) this.room = { ...this.room, online: pop };
-          this.emit();
-        },
-      },
-      this.log,
-    );
+    this.client = createPlatformClient("bilibili", this.clientHandlers(), this.log);
     this.log.on(() => this.emit());
     this.dispatcher.on("*", (ev) => this.onDispatched(ev));
+  }
+
+  private clientHandlers() {
+    return {
+      onEvent: (ev: LiveEvent) => this.ingest(ev),
+      onState: (state: ConnectionState) => {
+        this.connection = state;
+        this.layers.net = state === "live" ? "ok" : state === "error" ? "error" : state === "offline" ? "idle" : "warn";
+        if (state === "reconnecting") this.stats.reconnects += 1;
+        this.emit();
+      },
+      onHeartbeat: (popularity: number) => {
+        this.stats.heartbeats += 1;
+        this.stats.popularity = popularity;
+        if (this.room) this.room = { ...this.room, online: popularity };
+        this.emit();
+      },
+    };
   }
 
   subscribe(fn: () => void): () => void {
@@ -135,7 +137,7 @@ export class LiveEngine {
   }
 
   async startDemo() {
-    this.teardownLink();
+    const session = this.beginSession();
     this.mode = "demo";
     this.room = { ...DEMO_ROOM, online: DEMO_ROOM.online + Math.floor(Math.random() * 400) };
     this.connection = "live";
@@ -143,16 +145,20 @@ export class LiveEngine {
     this.layers.msg = "ok";
     this.layers.behavior = "ok";
     this.error = null;
-    this.running = true;
     this.scheduler.reset();
     this.log.push("info", "net", "演示厅已启动（模拟弹幕流）");
-    this.loopDemo();
+    this.loopDemo(session);
     this.loopScheduler();
     this.emit();
   }
 
   async startBilibili(roomId: number) {
-    this.teardownLink();
+    if (!Number.isInteger(roomId) || roomId <= 0) {
+      this.fail("请输入有效的 B 站房间号");
+      return;
+    }
+
+    const session = this.beginSession();
     this.mode = "bilibili";
     this.running = true;
     this.connection = "connecting";
@@ -163,6 +169,7 @@ export class LiveEngine {
     this.emit();
 
     const roomRes = await fetchBiliRoom({ data: { roomId } });
+    if (!this.isCurrent(session)) return;
     if (!roomRes.ok) {
       this.fail(roomRes.error);
       return;
@@ -172,6 +179,7 @@ export class LiveEngine {
     this.log.push("info", "msg", `进入「${roomRes.room.title}」· ${roomRes.room.uname}`);
 
     const ep = await fetchDanmuEndpoint({ data: { roomId: roomRes.room.roomId } });
+    if (!this.isCurrent(session)) return;
     if (!ep.ok) {
       this.fail(ep.error);
       return;
@@ -183,6 +191,7 @@ export class LiveEngine {
 
   stop() {
     this.running = false;
+    this.session += 1;
     this.teardownLink();
     this.connection = "offline";
     this.layers.net = "idle";
@@ -227,6 +236,17 @@ export class LiveEngine {
     this.emit();
   }
 
+  private beginSession() {
+    this.running = true;
+    this.session += 1;
+    this.teardownLink();
+    return this.session;
+  }
+
+  private isCurrent(session: number) {
+    return this.running && this.session === session;
+  }
+
   private fail(message: string) {
     this.error = message;
     this.connection = "error";
@@ -247,8 +267,8 @@ export class LiveEngine {
     }
   }
 
-  private loopDemo() {
-    if (!this.running || this.mode !== "demo") return;
+  private loopDemo(session: number) {
+    if (!this.isCurrent(session) || this.mode !== "demo") return;
     const pop = this.room?.online ?? 1000;
     const ev = simulateEvent(0, pop);
     this.ingest(ev);
@@ -256,7 +276,7 @@ export class LiveEngine {
       this.room = { ...this.room, online: Math.max(200, ev.popularity) };
       this.stats.popularity = this.room.online;
     }
-    this.demoTimer = setTimeout(() => this.loopDemo(), nextDemoDelay(pop));
+    this.demoTimer = setTimeout(() => this.loopDemo(session), nextDemoDelay(pop));
   }
 
   private loopScheduler() {
@@ -306,12 +326,7 @@ export class LiveEngine {
     }, delay);
   }
 
-  private enqueue(
-    raw: string,
-    source: Suggestion["source"],
-    reason: string,
-    inReplyTo?: string,
-  ) {
+  private enqueue(raw: string, source: Suggestion["source"], reason: string, inReplyTo?: string) {
     const text = postprocessReply(raw, this.config.replyMaxLen);
     if (!text) return;
     if (this.ctx.alreadySaid(text, 60_000)) return;
