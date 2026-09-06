@@ -4,8 +4,8 @@ const STICKERS = ["", "", "～", "。"];
 
 export function postprocessReply(text: string, maxLen: number): string | null {
   let t = text.replace(/\s+/g, " ").trim();
-  t = t.replace(/^["「『]|["」』]$/g, "");
-  t = t.replace(/[#@]/g, "");
+  t = t.replace(/^["「『]|["」』]$/g, "").trim();
+  t = t.replace(/[#@]/g, "").trim();
   if (!t) return null;
   const lower = t.toLowerCase();
   if (BLOCKED.some((w) => lower.includes(w))) return null;
