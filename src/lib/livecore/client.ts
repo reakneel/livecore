@@ -112,8 +112,14 @@ export class BiliLiveClient {
           const code = typeof auth === "object" && auth !== null && "code" in auth ? Number(auth.code) : 0;
           if (Number.isFinite(code) && code !== 0) {
             this.log.push("error", "net", `B 站认证失败 code=${code}`);
+            this.stopped = true;
+            this.clearTimers();
             this.handlers.onState("error");
-            ws.close();
+            try {
+              ws.close();
+            } catch {
+              /* ignore */
+            }
             return;
           }
           this.attempt = 0;
