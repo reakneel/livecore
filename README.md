@@ -38,7 +38,7 @@ GET    /api/rooms/:room_id/health
 WS     /api/rooms/:room_id/events
 ```
 
-本仓库现在按这个边界实现。SDK 负责连接生命周期、guest / authenticated handshake、heartbeat、reconnect、packet 展开与 `LiveEvent`；Vite 只消费统一事件流。fileciteturn320file0L2-L2
+本仓库现在按这个边界实现。SDK 负责连接生命周期、guest / authenticated handshake、heartbeat、reconnect、packet 展开与 `LiveEvent`；Vite 只消费统一事件流。
 
 ## 快速开始
 
@@ -60,7 +60,7 @@ npm run dev
 ```bash
 python -m venv .venv
 # Windows
-.venv\\Scripts\\activate
+.venv\Scripts\activate
 # macOS / Linux
 # source .venv/bin/activate
 
@@ -140,9 +140,9 @@ server/
 https://github.com/reakneel/livecore-bilibili.git
 ```
 
-SDK 当前版本为 `0.1.0`，Python >= 3.11。其 README 定义的核心连接层包括 `MultiRoomSupervisor`、`ConnectionSupervisor`、`ConnectionHealth`、`BiliLiveClient` 和 `LiveEvent`。fileciteturn322file0L2-L2
+SDK 当前版本为 `0.1.0`，Python >= 3.11。其 README 定义的核心连接层包括 `MultiRoomSupervisor`、`ConnectionSupervisor`、`ConnectionHealth`、`BiliLiveClient` 和 `LiveEvent`。
 
-SDK 的 `ConnectionSupervisor` 已提供公开的 event/state hook，因此 adapter 不需要访问 SDK 私有字段。fileciteturn326file0L2-L2
+`ConnectionSupervisor` 已提供公开的 event/state hook，因此 adapter 不需要访问 SDK 私有字段。
 
 ## 浏览器与部署边界
 
