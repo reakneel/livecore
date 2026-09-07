@@ -44,8 +44,8 @@ export async function startBiliRoom(roomId: number, requireToken = false): Promi
 
 export async function fetchDanmuEndpoint(roomId: number): Promise<{ ok: true; endpoint: DanmuEndpoint } | { ok: false; error: string }> {
   try {
-    const health = await api<RoomHealth>(`/api/rooms/${roomId}/health`);
-    return { ok: true, endpoint: { host: "sdk-adapter", wssPort: 0, token: "", roomId: health.room_id } };
+    await api<RoomHealth>(`/api/rooms/${roomId}/health`);
+    return { ok: true, endpoint: { host: "sdk-adapter", wssPort: 0, token: "" } };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "LiveCore 房间不存在" };
   }
