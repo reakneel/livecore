@@ -25,12 +25,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchBiliRoom(roomId: number): Promise<{ ok: true; room: RoomInfo } | { ok: false; error: string }> {
-  try {
-    const health = await api<RoomHealth>(`/api/rooms/${roomId}/health`);
-    return { ok: true, room: roomFromHealth(health) };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "LiveCore 后端不可用" };
-  }
+  return startBiliRoom(roomId).then((result) => {
+    if (!result.ok) return result;
+    return { ok: true, room: roomFromHealth(result.health) };
+  });
 }
 
 export async function startBiliRoom(roomId: number, requireToken = false): Promise<{ ok: true; health: RoomHealth } | { ok: false; error: string }> {
