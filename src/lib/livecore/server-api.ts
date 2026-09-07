@@ -25,10 +25,9 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function fetchBiliRoom(roomId: number): Promise<{ ok: true; room: RoomInfo } | { ok: false; error: string }> {
-  return startBiliRoom(roomId).then((result) => {
-    if (!result.ok) return result;
-    return { ok: true, room: roomFromHealth(result.health) };
-  });
+  const result = await startBiliRoom(roomId);
+  if (!result.ok) return result;
+  return { ok: true, room: roomFromHealth(result.health) };
 }
 
 export async function startBiliRoom(roomId: number, requireToken = false): Promise<{ ok: true; health: RoomHealth } | { ok: false; error: string }> {
