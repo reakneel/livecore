@@ -2,11 +2,47 @@
 
 **B站直播间智能互动控制台 · Standalone Vite Application**
 
-LiveCore 是一个可直接运行、可直接部署的 **Vite + React + TypeScript** 前端产品。当前第一落地点是 Bilibili 直播间：连接公开直播数据与弹幕事件，将平台消息归一化为 LiveEvent，并在控制台中提供实时 Feed、规则建议、连接状态和房间管理。
+LiveCore 是一个可直接运行、可直接部署的 **Vite + React + TypeScript** 前端产品。当前第一落地点是 Bilibili 直播间：控制台负责 UI、状态与交互，B 站连接与协议处理交给独立的 `livecore-bilibili` Python SDK，通过本仓库内置的轻量 HTTP + WebSocket adapter 接入。
 
-> **重要边界**：`livecore` 本身就是产品前端，不需要被另一个 Vite 项目消费，也不依赖 `livecore-bilibili` 才能启动。
+> **重要边界**：`livecore` 本身就是产品前端，不需要被另一个 Vite 项目消费。`livecore-bilibili` 是后端连接 SDK；浏览器不会重新实现 B 站 packet / heartbeat / reconnect / parser。
+
+## 架构
+
+```text
+Browser
+  ↓
+Vite + React
+  ↓
+ConsoleApp → LiveEngine → Platform Adapter
+                         ↓
+                  HTTP + WebSocket
+                         ↓
+              server/main.py (aiohttp)
+                         ↓
+             livecore-bilibili SDK
+                         ↓
+          Bili HTTP / WebSocket / Protocol
+                         ↓
+                     LiveEvent
+                         ↓
+                   Console Feed
+```
+
+SDK 仓库的 README 明确建议 Vite 与 SDK 之间增加薄的 HTTP + WebSocket API adapter，典型接口为：
+
+```text
+GET    /api/rooms
+POST   /api/rooms/:room_id/start
+DELETE /api/rooms/:room_id
+GET    /api/rooms/:room_id/health
+WS     /api/rooms/:room_id/events
+```
+
+本仓库现在按这个边界实现。SDK 负责连接生命周期、guest / authenticated handshake、heartbeat、reconnect、packet 展开与 `LiveEvent`；Vite 只消费统一事件流。fileciteturn320file0L2-L2
 
 ## 快速开始
+
+### 仅运行 UI / Demo
 
 ```bash
 npm install
@@ -15,18 +51,47 @@ npm run dev
 
 打开 `http://localhost:5173`。
 
-生产构建：
+### 运行真实 B 站房间
+
+需要 Python 3.11+。
+
+终端 1：安装并启动 SDK adapter：
+
+```bash
+python -m venv .venv
+# Windows
+.venv\\Scripts\\activate
+# macOS / Linux
+# source .venv/bin/activate
+
+pip install -r server/requirements.txt
+npm run dev:server
+```
+
+终端 2：启动 Vite：
+
+```bash
+npm install
+npm run dev
+```
+
+然后在控制台输入正在直播的 B 站房间号。
+
+Vite 开发服务器会把 `/api` 与 WebSocket 请求代理到 `127.0.0.1:8787`，浏览器不直接连接 B 站协议层。
+
+### 生产构建
 
 ```bash
 npm run build
 npm run preview
 ```
 
-质量检查：
+### 前端质量检查
 
 ```bash
 npm run typecheck
 npm test
+npm run build
 ```
 
 ## 当前落地能力
@@ -35,13 +100,13 @@ npm test
 - TanStack Router 客户端路由
 - LiveCore Console UI
 - Demo / Bilibili 真实房间双模式
-- Bilibili 房间信息解析与开播状态检查
-- Bilibili WebSocket 弹幕连接
-- 认证帧、心跳、嵌套 packet、zlib / Brotli 数据解析
-- 弹幕、礼物、进场、关注、分享、舰队、Super Chat 等统一 LiveEvent
-- 连接状态、错误状态、指数退避 + jitter 重连
-- 房间切换时的 session 隔离，避免旧连接污染新房间
+- SDK-backed Bilibili room lifecycle
+- HTTP + WebSocket Vite adapter
+- guest / authenticated handshake 入口
+- SDK 负责 heartbeat、reconnect、packet expand、Brotli / zlib 与事件解析
+- 弹幕、礼物、进场、关注、分享、舰队、Super Chat、人气等统一 `LiveEvent`
 - 实时事件 Feed 与规则建议队列
+- 连接状态、错误状态、房间 session 隔离
 - 浏览器端配置持久化
 - 响应式控制台
 - favicon / Open Graph 分享资源
@@ -49,54 +114,47 @@ npm test
 - GitHub Actions：typecheck + test + production build
 - Vercel SPA fallback 配置
 
-## 架构
-
-```text
-Browser
-  ↓
-Vite
-  ↓
-React
-  ↓
-TanStack Router
-  ↓
-ConsoleApp
-  ↓
-LiveEngine
-  ↓
-Platform Registry
-  ↓
-Bilibili Adapter / WebSocket
-  ↓
-LiveEvent
-```
-
-核心目录：
+## 核心目录
 
 ```text
 src/
 ├── components/console/   # 产品控制台 UI
 ├── components/ui/        # 基础 UI primitives
-├── lib/livecore/         # Engine、事件、调度、规则、连接运行时
-├── lib/platforms/        # 平台 adapter contract + Bilibili adapter
+├── lib/livecore/         # Engine、事件、调度、规则、SDK API adapter
+├── lib/platforms/        # 平台 adapter contract + Bilibili gateway adapter
 └── routes/               # SPA routes
+
+server/
+├── main.py               # aiohttp HTTP + WebSocket adapter
+├── requirements.txt      # livecore-bilibili + aiohttp
+└── __init__.py
 ```
 
-平台抽象已经保留，但当前目标是**产品优先**：先让 LiveCore 自己可运行、可连接、可部署，再扩展其它平台。
+已经删除浏览器侧重复的 Bilibili `client.ts / protocol.ts / parser.ts`。这些职责现在只存在于 `livecore-bilibili` SDK，避免两套协议实现逐渐产生行为漂移。
 
-## 浏览器运行边界
+## SDK 对接
 
-房间公开信息由 Bilibili Web API 获取，弹幕由浏览器 WebSocket 连接。实际部署时，Bilibili 接口的 CORS、WebSocket 策略或网络环境可能造成限制；遇到这类问题，应增加独立 edge/backend proxy，而不是把账号 Cookie、模型密钥等敏感凭据放进前端。
+当前依赖直接指向：
 
-AI 回复目前在纯 Vite 浏览器模式安全降级，不在客户端暴露模型 API Key。后续可通过独立后端代理接入。
+```text
+https://github.com/reakneel/livecore-bilibili.git
+```
 
-控制台默认停在「建议」层，不会使用账号 Cookie 自动向 Bilibili 发送弹幕、点赞或分享。请遵守 Bilibili 用户协议及适用法律法规。
+SDK 当前版本为 `0.1.0`，Python >= 3.11。其 README 定义的核心连接层包括 `MultiRoomSupervisor`、`ConnectionSupervisor`、`ConnectionHealth`、`BiliLiveClient` 和 `LiveEvent`。fileciteturn322file0L2-L2
 
-## 部署
+SDK 的 `ConnectionSupervisor` 已提供公开的 event/state hook，因此 adapter 不需要访问 SDK 私有字段。fileciteturn326file0L2-L2
 
-这是标准 Vite SPA，可部署到 Vercel、静态 CDN 或任意支持 SPA fallback 的 Web Server。仓库已经提供 `vercel.json`。
+## 浏览器与部署边界
 
-Vercel / 静态部署通常无需额外环境变量即可运行 Demo；真实 Bilibili 房间能力取决于浏览器到 Bilibili API / WebSocket 的网络策略。
+真实 Bilibili 连接现在不再由浏览器直接实现协议，而是由 Python SDK adapter 负责。这解决了浏览器 CORS / WebSocket 环境差异，也避免把 SDK 的 Python 协议栈复制到 TypeScript。
+
+因此：
+
+- **Demo**：只运行 Vite 即可。
+- **真实 Bilibili**：Vite + Python adapter 必须同时运行。
+- **Vercel**：可以部署 Vite 前端，但真实房间能力需要一个独立的 Python adapter 服务；不要把 Python SDK 塞进 Vite bundle。
+- AI 回复目前安全降级，不在客户端暴露模型 API Key。
+- 控制台默认不会使用账号 Cookie 自动向 Bilibili 发送弹幕、点赞或分享。
 
 ## CI
 
@@ -112,16 +170,15 @@ npm test
 npm run build
 ```
 
-## 项目边界与后续
+Python adapter 的运行依赖和 CI 可以独立演进；前端 CI 不需要把 Python SDK 打进浏览器 bundle。
 
-`livecore-bilibili` 是后续独立的平台能力 / SDK 项目，不是 LiveCore 当前运行时依赖。
+## 后续
 
-当前产品已经完成第一阶段落地，后续只做增量能力：
-
-1. AI 独立后端代理
+1. SDK adapter 稳定化与 integration test
 2. 多房间 Dashboard
-3. 第二个平台 adapter
-4. 更完整的生产级监控与观测
+3. AI 独立后端代理
+4. 第二个平台 adapter
+5. 生产级 metrics / tracing
 
 ## License
 
