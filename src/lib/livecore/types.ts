@@ -44,6 +44,23 @@ export interface GiftInfo {
   price: number;
 }
 
+export interface MonitorAmount {
+  value: number;
+  currency: "gold_coin" | "CNY";
+}
+
+export interface MonitorEvent {
+  kind: EventKind;
+  kind_label: string;
+  user: LiveUser | null;
+  gift: { name: string; num: number; unit_price: number } | null;
+  amount: MonitorAmount | null;
+  text: string;
+  meta_summary: string;
+  raw_cmd: string;
+  popularity: number;
+}
+
 export interface LiveEvent {
   id: string;
   ts: number;
@@ -55,6 +72,8 @@ export interface LiveEvent {
   sentiment?: Sentiment;
   rawCmd?: string;
   popularity?: number;
+  meta?: Record<string, unknown>;
+  monitor?: MonitorEvent;
 }
 
 export interface RoomInfo {
