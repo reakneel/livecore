@@ -8,8 +8,9 @@ from typing import Any
 
 from aiohttp import web
 from livecore import MultiRoomSupervisor
-from livecore.types import LiveEvent
 from livecore.logger import RingLogger
+from livecore.monitor import monitor_event
+from livecore.types import LiveEvent
 
 HOST = os.getenv("LIVECORE_API_HOST", "127.0.0.1")
 PORT = int(os.getenv("LIVECORE_API_PORT", "8787"))
@@ -26,7 +27,11 @@ def health_dict(item: Any) -> dict[str, Any]:
 
 
 def event_dict(event: LiveEvent) -> dict[str, Any]:
-    return asdict(event)
+    data = asdict(event)
+    # ``monitor`` is the stable UI/log projection. ``meta`` remains available
+    # for advanced consumers that need protocol-specific fields.
+    data["monitor"] = monitor_event(event)
+    return data
 
 
 def json_response(payload: Any, status: int = 200) -> web.Response:
