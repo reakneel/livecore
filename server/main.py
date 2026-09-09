@@ -14,6 +14,7 @@ from livecore.types import LiveEvent
 
 HOST = os.getenv("LIVECORE_API_HOST", "127.0.0.1")
 PORT = int(os.getenv("LIVECORE_API_PORT", "8787"))
+PLATFORM = "bilibili"
 
 log = RingLogger()
 supervisor = MultiRoomSupervisor(log)
@@ -23,6 +24,7 @@ subscribers: dict[int, set[web.WebSocketResponse]] = {}
 def health_dict(item: Any) -> dict[str, Any]:
     data = asdict(item)
     data["live_for_sec"] = item.live_for_sec
+    data["platform"] = PLATFORM
     return data
 
 
@@ -59,13 +61,21 @@ def attach_observers(room_id: int) -> None:
     room = supervisor.rooms[room_id]
 
     async def on_event(event: LiveEvent) -> None:
-        await broadcast(room_id, {"type": "event", "event": event_dict(event)})
+        await broadcast(
+            room_id,
+            {
+                "type": "event",
+                "platform": PLATFORM,
+                "event": event_dict(event),
+            },
+        )
 
     async def on_state(state: str) -> None:
         await broadcast(
             room_id,
             {
                 "type": "state",
+                "platform": PLATFORM,
                 "roomId": room_id,
                 "state": state,
                 "health": health_dict(room.snapshot()),
@@ -130,6 +140,7 @@ async def room_events(request: web.Request) -> web.StreamResponse:
             json.dumps(
                 {
                     "type": "state",
+                    "platform": PLATFORM,
                     "roomId": room_id,
                     "state": supervisor.rooms[room_id].snapshot().state,
                     "health": health_dict(supervisor.rooms[room_id].snapshot()),
@@ -145,7 +156,7 @@ async def room_events(request: web.Request) -> web.StreamResponse:
 
 
 async def health(_: web.Request) -> web.Response:
-    return json_response({"ok": True, "sdk": "livecore-bilibili", "rooms": len(supervisor.rooms)})
+    return json_response({"ok": True, "sdk": "livecore-bilibili", "platform": PLATFORM, "rooms": len(supervisor.rooms)})
 
 
 async def on_shutdown(_: web.Application) -> None:
