@@ -44,9 +44,10 @@ export interface GiftInfo {
   price: number;
 }
 
+/** Stable, platform-neutral presentation contract for monitoring UIs. */
 export interface MonitorAmount {
   value: number;
-  currency: "gold_coin" | "CNY";
+  currency: "gold_coin" | "CNY" | string;
 }
 
 export interface MonitorEvent {
@@ -59,6 +60,16 @@ export interface MonitorEvent {
   meta_summary: string;
   raw_cmd: string;
   popularity: number;
+}
+
+/**
+ * Transport envelope shared by every platform adapter.
+ * The event payload stays normalized so the console never needs platform
+ * protocol knowledge. New platforms only need to produce this contract.
+ */
+export interface PlatformEventEnvelope {
+  platform: string;
+  event: LiveEvent;
 }
 
 export interface LiveEvent {
