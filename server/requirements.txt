@@ -1,2 +1,2 @@
 aiohttp>=3.9
-livecore-bilibili @ git+https://github.com/reakneel/livecore-bilibili.git@c265b6794e59c78c933674c21bdaab9062b10eeb
+livecore-bilibili @ git+https://github.com/reakneel/livecore-bilibili.git@6ca73eed2a965b8ea261f6652fab99898ea2874a
