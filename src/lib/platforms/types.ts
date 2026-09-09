@@ -1,6 +1,11 @@
 import type { DanmuEndpoint, LiveEvent } from "@/lib/livecore/types";
 
-export type PlatformId = "bilibili";
+/**
+ * Platform identifiers are intentionally open-ended. The registry currently
+ * ships with Bilibili, while future adapters can add Douyin/Douyu/Huya/Twitch
+ * without changing the normalized event model or console components.
+ */
+export type PlatformId = "bilibili" | (string & {});
 
 export type PlatformConnectionState =
   | "connecting"
