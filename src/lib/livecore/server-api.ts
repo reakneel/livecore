@@ -11,7 +11,7 @@ export interface RoomHealth {
 }
 
 export type RoomStreamHandlers = {
-  onEvent: (event: LiveEvent, platform: string) => void;
+  onEvent: (event: LiveEvent) => void;
   onState: (state: RoomHealth["state"]) => void;
 };
 
@@ -66,13 +66,13 @@ export function subscribeBiliRoom(roomId: number, handlers: RoomStreamHandlers):
         | { type: "event"; platform?: string; event: LiveEvent };
       if (payload.type === "state") handlers.onState(payload.state);
       if (payload.type === "event") {
-        // Normalize the transport envelope here so platform clients receive
-        // only a stable event plus platform identity, never wire protocol data.
+        // Keep the wire format extensible: every adapter emits the same
+        // envelope, while the current client exposes only normalized events.
         const envelope: PlatformEventEnvelope = {
           platform: payload.platform ?? "unknown",
           event: payload.event,
         };
-        handlers.onEvent(envelope.event, envelope.platform);
+        handlers.onEvent(envelope.event);
       }
     } catch {
       // Ignore malformed adapter messages; the SDK owns protocol parsing.
