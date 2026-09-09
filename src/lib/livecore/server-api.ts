@@ -1,7 +1,8 @@
-import type { DanmuEndpoint, LiveEvent, RoomInfo } from "./types";
+import type { DanmuEndpoint, LiveEvent, PlatformEventEnvelope, RoomInfo } from "./types";
 
 export interface RoomHealth {
   room_id: number;
+  platform?: string;
   state: "connecting" | "authenticating" | "live" | "reconnecting" | "offline" | "error";
   reconnects: number;
   last_live_at: number;
@@ -10,7 +11,7 @@ export interface RoomHealth {
 }
 
 export type RoomStreamHandlers = {
-  onEvent: (event: LiveEvent) => void;
+  onEvent: (event: LiveEvent, platform: string) => void;
   onState: (state: RoomHealth["state"]) => void;
 };
 
@@ -61,10 +62,18 @@ export function subscribeBiliRoom(roomId: number, handlers: RoomStreamHandlers):
   socket.onmessage = (message) => {
     try {
       const payload = JSON.parse(message.data) as
-        | { type: "state"; state: RoomHealth["state"] }
-        | { type: "event"; event: LiveEvent };
+        | { type: "state"; platform?: string; state: RoomHealth["state"] }
+        | { type: "event"; platform?: string; event: LiveEvent };
       if (payload.type === "state") handlers.onState(payload.state);
-      if (payload.type === "event") handlers.onEvent(payload.event);
+      if (payload.type === "event") {
+        // Normalize the transport envelope here so platform clients receive
+        // only a stable event plus platform identity, never wire protocol data.
+        const envelope: PlatformEventEnvelope = {
+          platform: payload.platform ?? "unknown",
+          event: payload.event,
+        };
+        handlers.onEvent(envelope.event, envelope.platform);
+      }
     } catch {
       // Ignore malformed adapter messages; the SDK owns protocol parsing.
     }
